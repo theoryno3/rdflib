@@ -17,8 +17,8 @@ automatically downloads them (to allow for "manual+automatic" update).
 from operator import attrgetter
 import re
 import os
-from urllib2 import urlopen
-from urllib import url2pathname
+
+from six.moves.urllib.request import urlopen, url2pathname
 
 from rdflib.graph import Graph
 from rdflib.namespace import Namespace, RDF
@@ -59,7 +59,8 @@ def run_tc(tc):
     graph = Graph()
     source = create_input_source(cached_file(tc.html_url), publicID=tc.html_url)
     parser.parse(source, graph)
-    sparql = open(cached_file(tc.sparql_url)).read()
+    with open(cached_file(tc.sparql_url)) as sparql_f:
+        sparql = sparql_f.read()
     ok = verify_ask(sparql, graph, tc.expected)
     return ok, sparql, graph
 
@@ -103,11 +104,10 @@ def cached_file(url):
     fname = os.path.basename(url2pathname(url.split(':', 1)[1]))
     fpath = os.path.join(CACHE_DIR, fname)
     if not os.path.exists(fpath):
-        f = open(fpath, 'w')
-        try:
-            f.write(urlopen(url).read())
-        finally:
-            f.close()
+        with open(fpath, 'w') as f:
+            furl = urlopen(url)
+            f.write(furl.read())
+            furl.close()
     return fpath
 
 
@@ -148,14 +148,15 @@ def manual_run():
         count += 1
         print(test.description)
         try:
-            test() 
-            print "PASSED"
-        except AssertionError, e:
+            test()
+            print("PASSED")
+        except AssertionError as e:
             failed += 1
-            print "****FAILED****", e;
-        except Exception, e:
-            errors += 1; print "****ERROR**** in %s" % test._source_urls, e
-    print "Ran %(count)s tests. Failed: %(failed)s. Errors: %(errors)s."%vars()
+            print("****FAILED****", e);
+        except Exception as e:
+            errors += 1
+            print("****ERROR**** in %s" % test._source_urls, e)
+    print("Ran %(count)s tests. Failed: %(failed)s. Errors: %(errors)s."%vars())
 
 
 if __name__ == '__main__':

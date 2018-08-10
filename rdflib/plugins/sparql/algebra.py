@@ -6,9 +6,13 @@ http://www.w3.org/TR/sparql11-query/#sparqlQuery
 
 """
 
+from __future__ import print_function
+
 import functools
 import operator
 import collections
+
+from functools import reduce
 
 from rdflib import Literal, Variable, URIRef, BNode
 
@@ -63,6 +67,8 @@ def Filter(expr, p):
 def Extend(p, expr, var):
     return CompValue('Extend', p=p, expr=expr, var=var)
 
+def Values(res):
+    return CompValue('values', res=res)
 
 def Project(p, PV):
     return CompValue('Project', p=p, PV=PV)
@@ -73,12 +79,11 @@ def Group(p, expr=None):
 
 
 def _knownTerms(triple, varsknown, varscount):
-    return (len(filter(None, (x not in varsknown and
-                              isinstance(
-                                  x, (Variable, BNode)) for x in triple))),
+    return (len([ x for x in triple if x not in varsknown and
+                  isinstance(x, (Variable, BNode)) ]),
             -sum(varscount.get(x, 0) for x in triple),
             not isinstance(triple[2], Literal),
-            )
+    )
 
 
 def reorderTriples(l):
@@ -201,6 +206,9 @@ def translateExists(e):
         if isinstance(n, CompValue):
             if n.name in ('Builtin_EXISTS', 'Builtin_NOTEXISTS'):
                 n.graph = translateGroupGraphPattern(n.graph)
+                if n.graph.name == 'Filter':
+                    # filters inside (NOT) EXISTS can see vars bound outside
+                    n.graph.no_isolated_scope = True
 
     e = traverse(e, visitPost=_c)
 
@@ -335,7 +343,7 @@ def _traverse(e, visitPre=lambda n: None, visitPost=lambda n: None):
         return tuple([_traverse(x, visitPre, visitPost) for x in e])
 
     elif isinstance(e, CompValue):
-        for k, val in e.iteritems():
+        for k, val in e.items():
             e[k] = _traverse(val, visitPre, visitPost)
 
     _e = visitPost(e)
@@ -358,7 +366,7 @@ def _traverseAgg(e, visitor=lambda n, v: None):
         res = [_traverseAgg(x, visitor) for x in e]
 
     elif isinstance(e, CompValue):
-        for k, val in e.iteritems():
+        for k, val in e.items():
             if val != None:
                 res.append(_traverseAgg(val, visitor))
 
@@ -379,7 +387,7 @@ def traverse(
         if complete is not None:
             return complete
         return r
-    except StopTraversal, st:
+    except StopTraversal as st:
         return st.rv
 
 
@@ -420,26 +428,37 @@ def _findVars(x, res):
             res.add(x.var)
             return x  # stop recursion and finding vars in the expr
         elif x.name == 'SubSelect':
-            if x.projection: 
+            if x.projection:
                 res.update(v.var or v.evar for v in x.projection)
             return x
 
 
 def _addVars(x, children):
-    # import pdb; pdb.set_trace()
+    """
+    find which variables may be bound by this part of the query
+    """
     if isinstance(x, Variable):
         return set([x])
     elif isinstance(x, CompValue):
-        x["_vars"] = set(reduce(operator.or_, children, set()))
-        if x.name == "Bind":
-            return set([x.var])
-        elif x.name == 'SubSelect':
-            if x.projection:
-                s = set(v.var or v.evar for v in x.projection)
-            else: 
-                s = set()
+        if x.name == "RelationalExpression":
+            x["_vars"] = set()
+        elif x.name == "Extend":
+            # vars only used in the expr for a bind should not be included
+            x["_vars"] = reduce(operator.or_, [ child for child,part in zip(children,x) if part!='expr' ], set())
 
-            return s
+        else:
+            x["_vars"] = set(reduce(operator.or_, children, set()))
+
+            if x.name == 'SubSelect':
+                if x.projection:
+                    s = set(v.var or v.evar for v in x.projection)
+                else:
+                    s = set()
+
+                return s
+
+        return x["_vars"]
+
     return reduce(operator.or_, children, set())
 
 
@@ -467,7 +486,7 @@ def translateAggregates(q, M):
     #    select expr as ?var
     if q.projection:
         for v in q.projection:
-            if v.evar: 
+            if v.evar:
                 v.expr = traverse(v.expr, functools.partial(_sample, v=v.evar))
                 v.expr = traverse(v.expr, functools.partial(_aggs, A=A))
 
@@ -484,13 +503,13 @@ def translateAggregates(q, M):
 
     # sample all other select vars
     # TODO: only allowed for vars in group-by?
-    if q.projection: 
-        for v in q.projection: 
+    if q.projection:
+        for v in q.projection:
             if v.var:
                 rv = Variable('__agg_%d__' % (len(A) + 1))
                 A.append(CompValue('Aggregate_Sample', vars=v.var, res=rv))
                 E.append((rv, v.var))
-                
+
     return CompValue('AggregateJoin', A=A, p=M), E
 
 
@@ -511,7 +530,7 @@ def translateValues(v):
         for vals in v.value:
             res.append(dict(zip(v.var, vals)))
 
-    return CompValue('values', res=res)
+    return Values(res)
 
 
 def translate(q):
@@ -564,7 +583,7 @@ def translate(q):
     if q.valuesClause:
         M = Join(p1=M, p2=ToMultiSet(translateValues(q.valuesClause)))
 
-    if not q.projection: 
+    if not q.projection:
         # select *
         PV = list(VS)
     else:
@@ -578,7 +597,7 @@ def translate(q):
                     PV.append(v.evar)
 
                 E.append((v.expr, v.evar))
-            else: 
+            else:
                 raise Exception("I expected a var or evar here!")
 
     for e, v in E:
@@ -627,6 +646,12 @@ def simplify(n):
 
 def analyse(n, children):
 
+    """
+    Some things can be lazily joined.
+    This propegates whether they can up the tree
+    and sets lazy flags for all joins
+    """
+
     if isinstance(n, CompValue):
         if n.name == 'Join':
             n["lazy"] = all(children)
@@ -647,7 +672,7 @@ def translatePrologue(p, base, initNs=None, prologue=None):
     if base:
         prologue.base = base
     if initNs:
-        for k, v in initNs.iteritems():
+        for k, v in initNs.items():
             prologue.bind(k, v)
 
     for x in p:
@@ -767,13 +792,13 @@ def pprintAlgebra(q):
         #     print "%s ]"%ind
         #     return
         if not isinstance(p, CompValue):
-            print p
+            print(p)
             return
-        print "%s(" % (p.name, )
+        print("%s(" % (p.name, ))
         for k in p:
-            print "%s%s =" % (ind, k,),
+            print("%s%s =" % (ind, k,), end=' ')
             pp(p[k], ind + "    ")
-        print "%s)" % ind
+        print("%s)" % ind)
 
     try:
         pp(q.algebra)
@@ -784,7 +809,7 @@ def pprintAlgebra(q):
 
 if __name__ == '__main__':
     import sys
-    from . import parser
+    from rdflib.plugins.sparql import parser
     import os.path
 
     if os.path.exists(sys.argv[1]):
@@ -793,6 +818,6 @@ if __name__ == '__main__':
         q = sys.argv[1]
 
     pq = parser.parseQuery(q)
-    print pq
+    print(pq)
     tq = translateQuery(pq)
-    print pprintAlgebra(tq)
+    pprintAlgebra(tq)

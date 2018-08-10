@@ -1,9 +1,12 @@
+import logging
+from io import BytesIO
 
 from xml.sax.saxutils import XMLGenerator
 from xml.dom import XML_NAMESPACE
 from xml.sax.xmlreader import AttributesNSImpl
 
-from xml.etree import cElementTree as ElementTree
+from rdflib.compat import etree
+from six import iteritems
 
 from rdflib import Literal, URIRef, BNode, Graph, Variable
 from rdflib.query import (
@@ -13,8 +16,12 @@ from rdflib.query import (
     ResultException
 )
 
+from six import text_type
+
 SPARQL_XML_NAMESPACE = u'http://www.w3.org/2005/sparql-results#'
 RESULTS_NS_ET = '{%s}' % SPARQL_XML_NAMESPACE
+
+log = logging.getLogger(__name__)
 
 
 """A Parser for SPARQL results in XML:
@@ -39,15 +46,16 @@ class XMLResult(Result):
 
         xmlstring = source.read()
 
-        if isinstance(xmlstring, unicode):
+        if isinstance(xmlstring, text_type):
             xmlstring = xmlstring.encode('utf-8')
         try:
-            tree = ElementTree.fromstring(xmlstring)
-        except Exception, e:
-            try:
-                raise e.__class__("error parsing %r: %s" % (xmlstring, e))
-            except:
-                raise e
+            parser = etree.XMLParser(huge_tree=True)
+            tree = etree.parse(BytesIO(xmlstring), parser)
+        except TypeError:
+            tree = etree.fromstring(xmlstring)
+        except Exception as e:
+            log.exception("Error parsing XML results: %s"%xmlstring)
+            raise e
 
         boolean = tree.find(RESULTS_NS_ET + 'boolean')
         results = tree.find(RESULTS_NS_ET + 'results')
@@ -129,7 +137,7 @@ class XMLResultSerializer(ResultSerializer):
             writer.write_results_header()
             for b in self.result.bindings:
                 writer.write_start_result()
-                for key, val in b.iteritems():
+                for key, val in iteritems(b):
                     writer.write_binding(key, val)
 
                 writer.write_end_result()
@@ -145,7 +153,7 @@ class SPARQLXMLWriter:
     def __init__(self, output, encoding='utf-8'):
         writer = XMLGenerator(output, encoding)
         writer.startDocument()
-        writer.startPrefixMapping(u'sparql', SPARQL_XML_NAMESPACE)
+        writer.startPrefixMapping(u'', SPARQL_XML_NAMESPACE)
         writer.startPrefixMapping(u'xml', XML_NAMESPACE)
         writer.startElementNS(
             (SPARQL_XML_NAMESPACE, u'sparql'),
@@ -159,9 +167,9 @@ class SPARQLXMLWriter:
         self.writer.startElementNS(
             (SPARQL_XML_NAMESPACE, u'head'),
             u'head', AttributesNSImpl({}, {}))
-        for i in xrange(0, len(allvarsL)):
+        for i in range(0, len(allvarsL)):
             attr_vals = {
-                (None, u'name'): unicode(allvarsL[i]),
+                (None, u'name'): text_type(allvarsL[i]),
             }
             attr_qnames = {
                 (None, u'name'): u'name',
@@ -203,7 +211,7 @@ class SPARQLXMLWriter:
         assert self._resultStarted
 
         attr_vals = {
-            (None, u'name'): unicode(name),
+            (None, u'name'): text_type(name),
         }
         attr_qnames = {
             (None, u'name'): u'name',

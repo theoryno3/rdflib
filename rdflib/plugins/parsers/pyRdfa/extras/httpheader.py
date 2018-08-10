@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
@@ -32,7 +33,7 @@
      * parse_accept_header()
      * parse_accept_language_header()
      * parse_range_header()
- 
+
    * Date and time...
      * http_datetime()
      * parse_http_datetime()
@@ -70,12 +71,12 @@
              <http://www.ietf.org/rfc/rfc2046.txt>
    * RFC 3066, "Tags for the Identification of Languages", January 2001.
              <http://www.ietf.org/rfc/rfc3066.txt>
-             
-             
-  Note: I have made a small modification on the regexp for internet date, 
+
+
+  Note: I have made a small modification on the regexp for internet date,
   to make it more liberal (ie, accept a time zone string of the form +0000)
   Ivan Herman <http://www.ivan-herman.net>, March 2011.
-  
+
   Have added statements to make it (hopefully) Python 3 compatible.
   Ivan Herman <http://www.ivan-herman.net>, August 2012.
 """
@@ -101,26 +102,14 @@ License along with this library; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 """
 
+from six import string_types, text_type
+
 # Character classes from RFC 2616 section 2.2
 SEPARATORS = '()<>@,;:\\"/[]?={} \t'
 LWS = ' \t\n\r'  # linear white space
 CRLF = '\r\n'
 DIGIT = '0123456789'
 HEX = '0123456789ABCDEFabcdef'
-
-import sys
-PY3 = (sys.version_info[0] >= 3)
-
-# Try to get a set/frozenset implementation if possible
-try:
-    type(frozenset)
-except NameError:
-    try:
-        # The demset.py module is available at http://deron.meranda.us/
-        from demset import set, frozenset
-        __emulating_set = True  # So we can clean up global namespace later
-    except ImportError:
-        pass
 
 try:
     # Turn character classes into set types (for Python 2.4 or greater)
@@ -137,10 +126,9 @@ except NameError:
 
 def _is_string( obj ):
     """Returns True if the object is a string or unicode type."""
-    if PY3 :
-        return isinstance(obj,str)
-    else :
-        return isinstance(obj,str) or isinstance(obj,unicode)
+
+    return isinstance(obj, string_types)
+
 
 
 def http_datetime( dt=None ):
@@ -151,7 +139,7 @@ def http_datetime( dt=None ):
 
     If no datetime is provided (or None) then the current
     time is used.
-    
+
     ABOUT TIMEZONES: If the passed in datetime object is naive it is
     assumed to be in UTC already.  But if it has a tzinfo component,
     the returned timestamp string will have been converted to UTC
@@ -186,7 +174,7 @@ def parse_http_datetime( datestring, utc_tzinfo=None, strict=False ):
     If you set 'strict' to True, then only the RFC 1123 format
     is recognized.  Otherwise the backwards-compatible RFC 1036
     and Unix asctime(3) formats are also recognized.
-    
+
     Please note that the day-of-the-week is not validated.
     Also two-digit years, although not HTTP 1.1 compliant, are
     treated according to recommended Y2K rules.
@@ -546,7 +534,7 @@ def parse_comment(s, start=0):
     or Via, allow ()-style comments within the header value.
 
     A comment is defined by RFC 2616 section 2.2 as:
-    
+
        comment = "(" *( ctext | quoted-pair | comment ) ")"
        ctext   = <any TEXT excluding "(" and ")">
     """
@@ -591,7 +579,7 @@ def parse_comment(s, start=0):
     while len(s2) and s2[-1] in LWS:
         s2 = s2[:-1]
     return s2, (pos - start)
-    
+
 
 class range_spec(object):
     """A single contiguous (byte) range.
@@ -676,7 +664,7 @@ class range_spec(object):
     def __ge__(self, other):
         """>= operator is not defined"""
         raise NotImplementedError('Ranges can not be relationally compared')
-    
+
     def copy(self):
         """Makes a copy of this range object."""
         return self.__class__( self.first, self.last )
@@ -697,7 +685,7 @@ class range_spec(object):
         is the is_unbounded() method.
 
         """
-        return first is not None and last is not None
+        return self.first is not None and self.last is not None
 
     def is_unbounded(self):
         """Returns True if the number of bytes in the range is unspecified.
@@ -1123,7 +1111,7 @@ def parse_accept_header( header_value ):
 
     The value of the header as a string should be passed in; without
     the header name itself.
-    
+
     This will parse the value of any of the HTTP headers "Accept",
     "Accept-Charset", "Accept-Encoding", or "Accept-Language".  These
     headers are similarly formatted, in that they are a list of items
@@ -1197,7 +1185,7 @@ def parse_media_type(media_type, start=0, with_parameters=True):
 
     where parmlist is a list of tuples of (parm_name, parm_value).
     Quoted-values are appropriately unquoted and unescaped.
-    
+
     If 'with_parameters' is False, then parsing will stop immediately
     after the minor media type; and will not proceed to parse any
     of the semicolon-separated paramters.
@@ -1307,9 +1295,9 @@ class content_type(object):
             # already a dictionary
             pl = parameter_list_or_dict
         else:
-            pl, k = parse_parameter_list(parameter_list)
-            if k < len(parameter_list):
-                raise ParseError('Invalid parameter list',paramter_list,k)
+            pl, k = parse_parameter_list(parameter_list_or_dict)
+            if k < len(parameter_list_or_dict):
+                raise ParseError('Invalid parameter list', parameter_list_or_dict ,k)
         self.parmdict = dict(pl)
 
     def set(self, content_type_string, with_parameters=True):
@@ -1325,7 +1313,7 @@ class content_type(object):
         self._set_major( major )
         self._set_minor( minor )
         self.parmdict = dict(pdict)
-        
+
     def _get_major(self):
         return self._major
     def _set_major(self, s):
@@ -1355,11 +1343,7 @@ class content_type(object):
 
     def __unicode__(self):
         """Unicode string value."""
-        # In Python 3 this is probably unnecessary in general, this is just to avoid possible syntax issues. I.H.
-        if PY3 :
-            return str(self.__str__())
-        else :
-            return unicode(self.__str__())
+        return text_type(self.__str__())
 
     def __repr__(self):
         """Python representation of this object."""
@@ -1408,7 +1392,7 @@ class content_type(object):
     def __ne__(self, other):
         """Inequality test."""
         return not self.__eq__(other)
-            
+
     def _get_media_type(self):
         """Returns the media 'type/subtype' string, without parameters."""
         return '%s/%s' % (self.major, self.minor)
@@ -1645,7 +1629,7 @@ def canonical_charset( charset ):
     altering the character_set_aliases dictionary in this module.
     Charsets which are not recognized are simply converted to
     upper-case (as charset names are always case-insensitive).
-    
+
     See <http://www.iana.org/assignments/character-sets>.
 
     """
@@ -1678,7 +1662,7 @@ def acceptable_charset( accept_charset_header, charsets, ignore_wildcard=True, d
     This function returns the charset identifier string which is the
     most prefered and is acceptable to both the user agent and the
     caller.  It will return the default value if no charset is negotiable.
-    
+
     Note that the wildcarded charset "*" will be ignored.  To override
     this, call with ignore_wildcard=False.
 
@@ -1687,7 +1671,7 @@ def acceptable_charset( accept_charset_header, charsets, ignore_wildcard=True, d
 
     """
     if default:
-        default = _canonical_charset(default)
+        default = canonical_charset(default)
 
     if _is_string(accept_charset_header):
         accept_list = parse_accept_header(accept_charset_header)
@@ -1695,9 +1679,9 @@ def acceptable_charset( accept_charset_header, charsets, ignore_wildcard=True, d
         accept_list = accept_charset_header
 
     if _is_string(charsets):
-        charsets = [_canonical_charset(charsets)]
+        charsets = [canonical_charset(charsets)]
     else:
-        charsets = [_canonical_charset(c) for c in charsets]
+        charsets = [canonical_charset(c) for c in charsets]
 
     # Note per RFC that 'ISO-8859-1' is special, and is implictly in the
     # accept list with q=1; unless it is already in the list, or '*' is in the list.
@@ -1711,7 +1695,7 @@ def acceptable_charset( accept_charset_header, charsets, ignore_wildcard=True, d
             if not best or qvalue > best[1]:
                 best = (c, qvalue)
         else:
-            c = _canonical_charset(c)
+            c = canonical_charset(c)
             for test_c in charsets:
                 if c == default:
                     default = None
@@ -1730,7 +1714,7 @@ class language_tag(object):
 
     Initialize objects of this class with a single string representing
     the language tag, such as "en-US".
-        
+
     Case is insensitive. Wildcarded subtags are ignored or stripped as
     they have no significance, so that "en-*" is the same as "en".
     However the universal wildcard "*" language tag is kept as-is.
@@ -1777,11 +1761,7 @@ class language_tag(object):
 
     def __unicode__(self):
         """The unicode string form of this language tag."""
-        # Probably unnecessary in Python 3
-        if PY3 :
-            return str(self.__str__())
-        else :
-            return unicode(self.__str__())
+        return text_type(self.__str__())
 
     def __repr__(self):
         """The python representation of this language tag."""
@@ -1813,7 +1793,7 @@ class language_tag(object):
                 continue
             langlist.append(l)
         return langlist
-                
+
     def is_universal_wildcard(self):
         """Returns True if this language tag represents all possible
         languages, by using the reserved tag of "*".
@@ -1940,7 +1920,7 @@ def acceptable_language( accept_header, server_languages, ignore_wildcard=True, 
     See also: RFC 3066 <http://www.ietf.org/rfc/rfc3066.txt>, and
     ISO 639, links at <http://en.wikipedia.org/wiki/ISO_639>, and
     <http://www.iana.org/assignments/language-tags>.
-    
+
     """
     # Note special instructions from RFC 2616 sect. 14.1:
     #   "The language quality factor assigned to a language-tag by the
@@ -1979,7 +1959,7 @@ def acceptable_language( accept_header, server_languages, ignore_wildcard=True, 
 
     # Select the best one
     best = None  # tuple (langtag, qvalue, matchlen)
-    
+
     for langtag, qvalue, aargs in accept_list:
         # aargs is ignored for Accept-Language
         if qvalue <= 0:

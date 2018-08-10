@@ -8,7 +8,8 @@ It is implemented with pyparsing, reusing the elements from the SPARQL Parser
 import codecs
 
 from pyparsing import (
-    Optional, ZeroOrMore, Literal, ParserElement, ParseException, Suppress)
+    Optional, ZeroOrMore, Literal, ParserElement, ParseException, Suppress,
+    FollowedBy, LineEnd)
 
 from rdflib.query import Result, ResultParser
 
@@ -19,7 +20,7 @@ from rdflib.plugins.sparql.parserutils import Comp, Param, CompValue
 
 from rdflib import Literal as RDFLiteral
 
-from rdflib.py3compat import bytestype
+from six import binary_type
 
 ParserElement.setDefaultWhitespaceChars(" \n")
 
@@ -29,10 +30,16 @@ String = STRING_LITERAL1 | STRING_LITERAL2
 RDFLITERAL = Comp('literal', Param('string', String) + Optional(
     Param('lang', LANGTAG.leaveWhitespace()
           ) | Literal('^^').leaveWhitespace(
-          ) + Param('datatype', IRIREF).leaveWhitespace()))
+    ) + Param('datatype', IRIREF).leaveWhitespace()))
+
+NONE_VALUE = object()
+
+EMPTY = FollowedBy(LineEnd()) | FollowedBy("\t")
+EMPTY.setParseAction(lambda x: NONE_VALUE)
 
 TERM = RDFLITERAL | IRIREF | BLANK_NODE_LABEL | NumericLiteral | BooleanLiteral
-ROW = TERM + ZeroOrMore(Suppress("\t") + TERM)
+
+ROW = (EMPTY | TERM) + ZeroOrMore(Suppress("\t") + (EMPTY | TERM))
 ROW.parseWithTabs()
 
 HEADER = Var + ZeroOrMore(Suppress("\t") + Var)
@@ -42,7 +49,7 @@ HEADER.parseWithTabs()
 class TSVResultParser(ResultParser):
     def parse(self, source):
 
-        if isinstance(source.read(0), bytestype):
+        if isinstance(source.read(0), binary_type):
             # if reading from source returns bytes do utf-8 decoding
             source = codecs.getreader('utf-8')(source)
 
@@ -57,7 +64,7 @@ class TSVResultParser(ResultParser):
                 line = source.readline()
                 if not line:
                     break
-                line = line.strip()
+                line = line.strip('\n')
                 if line == "":
                     continue
 
@@ -67,12 +74,14 @@ class TSVResultParser(ResultParser):
 
             return r
 
-        except ParseException, err:
-            print err.line
-            print " " * (err.column - 1) + "^"
-            print err
+        except ParseException as err:
+            print(err.line)
+            print(" " * (err.column - 1) + "^")
+            print(err)
 
     def convertTerm(self, t):
+        if t is NONE_VALUE:
+            return None
         if isinstance(t, CompValue):
             if t.name == 'literal':
                 return RDFLiteral(t.string, lang=t.lang, datatype=t.datatype)
@@ -84,6 +93,6 @@ class TSVResultParser(ResultParser):
 if __name__ == '__main__':
     import sys
     r = Result.parse(file(sys.argv[1]), format='tsv')
-    print r.vars
-    print r.bindings
+    print(r.vars)
+    print(r.bindings)
     # print r.serialize(format='json')

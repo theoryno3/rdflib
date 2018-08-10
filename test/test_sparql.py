@@ -45,7 +45,7 @@ def test_variable_order():
     res = g.query("SELECT (42 AS ?a) ?b { ?b ?c ?d }")
 
     row = list(res)[0]
-    print row
+    print(row)
     assert len(row) == 2
     assert row[0] == Literal(42)
     assert row[1] == URIRef("http://foo")
@@ -64,6 +64,16 @@ def test_sparql_bnodelist():
     prepareQuery('select * where { ?s ?p ( [ ?p2 ?o2 ] [] ) . }')
     prepareQuery('select * where { ?s ?p ( [] [ ?p2 ?o2 ] [] ) . }')
 
+def test_complex_sparql_construct():
+
+    g = Graph()
+    q = '''select ?subject ?study ?id where {
+    ?s a <urn:Person>;
+      <urn:partOf> ?c;
+      <urn:hasParent> ?mother, ?father;
+      <urn:id> [ a <urn:Identifier>; <urn:has-value> ?id].
+    }'''
+    g.query(q)
 
 if __name__ == '__main__':
     import nose

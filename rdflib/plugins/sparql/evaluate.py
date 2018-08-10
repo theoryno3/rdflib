@@ -17,16 +17,17 @@ also return a dict of list of dicts
 import collections
 
 from rdflib import Variable, Graph, BNode, URIRef, Literal
+from six import iteritems, itervalues
 
 from rdflib.plugins.sparql import CUSTOM_EVALS
 from rdflib.plugins.sparql.parserutils import value
 from rdflib.plugins.sparql.sparql import (
     QueryContext, AlreadyBound, FrozenBindings, SPARQLError)
 from rdflib.plugins.sparql.evalutils import (
-    _filter, _eval, _join, _diff, _minus, _fillTemplate, _ebv)
+    _filter, _eval, _join, _diff, _minus, _fillTemplate, _ebv, _val)
 
-from rdflib.plugins.sparql.aggregates import evalAgg
-
+from rdflib.plugins.sparql.aggregates import Aggregator
+from rdflib.plugins.sparql.algebra import Join, ToMultiSet, Values
 
 def evalBGP(ctx, bgp):
 
@@ -74,7 +75,7 @@ def evalExtend(ctx, extend):
 
     for c in evalPart(ctx, extend.p):
         try:
-            e = _eval(extend.expr, c.forget(ctx))
+            e = _eval(extend.expr, c.forget(ctx, _except=extend._vars))
             if isinstance(e, SPARQLError):
                 raise e
 
@@ -94,7 +95,7 @@ def evalLazyJoin(ctx, join):
     for a in evalPart(ctx, join.p1):
         c = ctx.thaw(a)
         for b in evalPart(c, join.p2):
-            yield b
+            yield b.merge(a) # merge, as some bindings may have been forgotten
 
 
 def evalJoin(ctx, join):
@@ -111,13 +112,10 @@ def evalJoin(ctx, join):
 
 
 def evalUnion(ctx, union):
-    res = set()
     for x in evalPart(ctx, union.p1):
-        res.add(x)
         yield x
     for x in evalPart(ctx, union.p2):
-        if x not in res:
-            yield x
+        yield x
 
 
 def evalMinus(ctx, minus):
@@ -141,8 +139,10 @@ def evalLeftJoin(ctx, join):
             # before we yield a solution without the OPTIONAL part
             # check that we would have had no OPTIONAL matches
             # even without prior bindings...
-            if not any(_ebv(join.expr, b) for b in
-                       evalPart(ctx.thaw(a.remember(join.p1._vars)), join.p2)):
+            p1_vars = join.p1._vars
+            if p1_vars is None \
+            or not any(_ebv(join.expr, b) for b in
+                       evalPart(ctx.thaw(a.remember(p1_vars)), join.p2)):
 
                 yield a
 
@@ -150,7 +150,7 @@ def evalLeftJoin(ctx, join):
 def evalFilter(ctx, part):
     # TODO: Deal with dict returned from evalPart!
     for c in evalPart(ctx, part.p):
-        if _ebv(part.expr, c.forget(ctx)):
+        if _ebv(part.expr, c.forget(ctx, _except=part._vars) if not part.no_isolated_scope else c):
             yield c
 
 
@@ -164,7 +164,7 @@ def evalGraph(ctx, part):
     ctx = ctx.clone()
     graph = ctx[part.term]
     if graph is None:
-        
+
         for graph in ctx.dataset.contexts():
 
             # in SPARQL the default graph is NOT a named graph
@@ -174,12 +174,12 @@ def evalGraph(ctx, part):
             c = ctx.pushGraph(graph)
             c = c.push()
             graphSolution = [{part.term: graph.identifier}]
-            for x in _join(evalPart(c, part.p), graphSolution): 
+            for x in _join(evalPart(c, part.p), graphSolution):
                 yield x
 
     else:
         c = ctx.pushGraph(ctx.dataset.get_context(graph))
-        for x in evalPart(c, part.p): 
+        for x in evalPart(c, part.p):
             yield x
 
 
@@ -187,7 +187,7 @@ def evalValues(ctx, part):
     for r in part.p.res:
         c = ctx.push()
         try:
-            for k, v in r.iteritems():
+            for k, v in r.items():
                 if v != 'UNDEF':
                     c[k] = v
         except AlreadyBound:
@@ -214,7 +214,11 @@ def evalPart(ctx, part):
             pass  # the given custome-function did not handle this part
 
     if part.name == 'BGP':
-        return evalBGP(ctx, part.triples)  # NOTE pass part.triples, not part!
+        # Reorder triples patterns by number of bound nodes in the current ctx
+        # Do patterns with more bound nodes first
+        triples = sorted(part.triples, key=lambda t: len([n for n in t if ctx[n] is None]))
+
+        return evalBGP(ctx, triples)
     elif part.name == 'Filter':
         return evalFilter(ctx, part)
     elif part.name == 'Join':
@@ -271,16 +275,8 @@ def evalGroup(ctx, group):
     """
     http://www.w3.org/TR/sparql11-query/#defn_algGroup
     """
-
-    p = evalPart(ctx, group.p)
-    if not group.expr:
-        return {1: list(p)}
-    else:
-        res = collections.defaultdict(list)
-        for c in p:
-            k = tuple(_eval(e, c) for e in group.expr)
-            res[k].append(c)
-        return res
+    # grouping should be implemented by evalAggregateJoin
+    return evalPart(ctx, group.p)
 
 
 def evalAggregateJoin(ctx, agg):
@@ -288,16 +284,28 @@ def evalAggregateJoin(ctx, agg):
     p = evalPart(ctx, agg.p)
     # p is always a Group, we always get a dict back
 
-    for row in p:
-        bindings = {}
-        for a in agg.A:
-            evalAgg(a, p[row], bindings)
+    group_expr = agg.p.expr
+    res = collections.defaultdict(lambda: Aggregator(aggregations=agg.A))
 
-        yield FrozenBindings(ctx, bindings)
+    if group_expr is None:
+        # no grouping, just COUNT in SELECT clause
+        # get 1 aggregator for counting
+        aggregator = res[True]
+        for row in p:
+            aggregator.update(row)
+    else:
+        for row in p:
+            # determine right group aggregator for row
+            k = tuple(_eval(e, row, False) for e in group_expr)
+            res[k].update(row)
 
-    if len(p) == 0:
+    # all rows are done; yield aggregated values
+    for aggregator in itervalues(res):
+        yield FrozenBindings(ctx, aggregator.get_bindings())
+
+    # there were no matches
+    if len(res) == 0:
         yield FrozenBindings(ctx)
-
 
 
 def evalOrderBy(ctx, part):
@@ -306,19 +314,8 @@ def evalOrderBy(ctx, part):
 
     for e in reversed(part.expr):
 
-        def val(x):
-            v = value(x, e.expr, variables=True)
-            if isinstance(v, Variable):
-                return (0, v)
-            elif isinstance(v, BNode):
-                return (1, v)
-            elif isinstance(v, URIRef):
-                return (2, v)
-            elif isinstance(v, Literal):
-                return (3, v)
-
         reverse = bool(e.order and e.order == 'DESC')
-        res = sorted(res, key=val, reverse=reverse)
+        res = sorted(res, key=lambda x: _val(value(x, e.expr, variables=True)), reverse=reverse)
 
     return res
 
@@ -328,7 +325,7 @@ def evalSlice(ctx, slice):
     res = evalPart(ctx, slice.p)
     i = 0
     while i < slice.start:
-        res.next()
+        next(res)
         i += 1
     i = 0
     for x in res:
@@ -343,7 +340,41 @@ def evalSlice(ctx, slice):
 
 
 def evalReduced(ctx, part):
-    return evalPart(ctx, part.p)  # TODO!
+    """apply REDUCED to result
+
+    REDUCED is not as strict as DISTINCT, but if the incoming rows were sorted
+    it should produce the same result with limited extra memory and time per
+    incoming row.
+    """
+
+    # This implementation uses a most recently used strategy and a limited
+    # buffer size. It relates to a LRU caching algorithm:
+    # https://en.wikipedia.org/wiki/Cache_algorithms#Least_Recently_Used_.28LRU.29
+    MAX = 1
+    # TODO: add configuration or determine "best" size for most use cases
+    # 0: No reduction
+    # 1: compare only with the last row, almost no reduction with
+    #    unordered incoming rows
+    # N: The greater the buffer size the greater the reduction but more
+    #    memory and time are needed
+
+    # mixed data structure: set for lookup, deque for append/pop/remove
+    mru_set = set()
+    mru_queue = collections.deque()
+
+    for row in evalPart(ctx, part.p):
+        if row in mru_set:
+            # forget last position of row
+            mru_queue.remove(row)
+        else:
+            #row seems to be new
+            yield row
+            mru_set.add(row)
+            if len(mru_set) > MAX:
+                # drop the least recently used row from buffer
+                mru_set.remove(mru_queue.pop())
+        # put row to the front
+        mru_queue.appendleft(row)
 
 
 def evalDistinct(ctx, part):
@@ -402,20 +433,14 @@ def evalConstructQuery(ctx, query):
 
 
 def evalQuery(graph, query, initBindings, base=None):
-    ctx = QueryContext(graph)
+
+    initBindings = dict( ( Variable(k),v ) for k,v in iteritems(initBindings) )
+
+    ctx = QueryContext(graph, initBindings=initBindings)
 
     ctx.prologue = query.prologue
-
-    if initBindings:
-        for k, v in initBindings.iteritems():
-            if not isinstance(k, Variable):
-                k = Variable(k)
-            ctx[k] = v
-        # ctx.push()  # nescessary?
-
     main = query.algebra
 
-    # import pdb; pdb.set_trace()
     if main.datasetClause:
         if ctx.dataset is None:
             raise Exception(

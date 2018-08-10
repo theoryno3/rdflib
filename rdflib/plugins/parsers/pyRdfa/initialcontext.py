@@ -14,14 +14,15 @@ U{W3C® SOFTWARE NOTICE AND LICENSE<href="http://www.w3.org/Consortium/Legal/200
 
 class Wrapper :
 	pass
-	
+
 initial_context = {
 	"http://www.w3.org/2011/rdfa-context/rdfa-1.1" 		 : Wrapper(),
 	"http://www.w3.org/2011/rdfa-context/xhtml-rdfa-1.1" : Wrapper(),
 }
 
 initial_context["http://www.w3.org/2011/rdfa-context/rdfa-1.1"].ns = {
-	'cat'		: 'http://www.w3.org/ns/dcat#',
+	'csvw'		: 'http://www.w3.org/ns/csvw#',
+	'dcat'		: 'http://www.w3.org/ns/dcat#',
     'qb'		: 'http://purl.org/linked-data/cube#',
     'org'		: 'http://www.w3.org/ns/org#',
 	'owl'		: 'http://www.w3.org/2002/07/owl#',
@@ -39,7 +40,7 @@ initial_context["http://www.w3.org/2011/rdfa-context/rdfa-1.1"].ns = {
 	'rdfa'		: 'http://www.w3.org/ns/rdfa#',
 	'dc'		: 'http://purl.org/dc/terms/',
 	'dcterms'	: 'http://purl.org/dc/terms/',
-	'dc11'	    : 'http://purl.org/dc/elements/1.1/',	
+	'dc11'	    : 'http://purl.org/dc/elements/1.1/',
 	'foaf'		: 'http://xmlns.com/foaf/0.1/',
 	'void'		: 'http://rdfs.org/ns/void#',
 	'ical'		: 'http://www.w3.org/2002/12/cal/icaltzd#',
@@ -99,4 +100,3 @@ initial_context["http://www.w3.org/2011/rdfa-context/xhtml-rdfa-1.1"].terms = {
 	'first'					: 'http://www.w3.org/1999/xhtml/vocab#first',
 	'top'					: 'http://www.w3.org/1999/xhtml/vocab#top',
 }
-

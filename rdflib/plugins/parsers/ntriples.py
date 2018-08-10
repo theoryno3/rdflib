@@ -1,4 +1,8 @@
 #!/usr/bin/env python
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 __doc__ = """
 N-Triples Parser
 License: GPL 2, W3C, BSD, or MIT
@@ -6,17 +10,27 @@ Author: Sean B. Palmer, inamidst.com
 """
 
 import re
+import codecs
+
 from rdflib.term import URIRef as URI
 from rdflib.term import BNode as bNode
 from rdflib.term import Literal
 
-from rdflib.py3compat import cast_bytes, decodeUnicodeEscape, ascii
+
+from rdflib.compat import cast_bytes
+from rdflib.compat import decodeUnicodeEscape
+from rdflib.compat import ascii
+
+from six import BytesIO
+from six import string_types
+from six import text_type
+from six import unichr
 
 __all__ = ['unquote', 'uriquote', 'Sink', 'NTriplesParser']
 
 uriref = r'<([^:]+:[^\s"<>]+)>'
 literal = r'"([^"\\]*(?:\\.[^"\\]*)*)"'
-litinfo = r'(?:@([a-z]+(?:-[a-zA-Z0-9]+)*)|\^\^' + uriref + r')?'
+litinfo = r'(?:@([a-zA-Z]+(?:-[a-zA-Z0-9]+)*)|\^\^' + uriref + r')?'
 
 r_line = re.compile(r'([^\r\n]*)(?:\r\n|\r|\n)')
 r_wspace = re.compile(r'[ \t]*')
@@ -30,7 +44,7 @@ bufsiz = 2048
 validate = False
 
 
-class Node(unicode):
+class Node(text_type):
     pass
 
 
@@ -44,7 +58,7 @@ class Sink(object):
 
     def triple(self, s, p, o):
         self.length += 1
-        print (s, p, o)
+        print(s, p, o)
 
 quot = {'t': u'\t', 'n': u'\n', 'r': u'\r', '"': u'"', '\\':
         u'\\'}
@@ -57,7 +71,7 @@ def unquote(s):
     """Unquote an N-Triples string."""
     if not validate:
 
-        if isinstance(s, unicode): # nquads
+        if isinstance(s, text_type): # nquads
             s = decodeUnicodeEscape(s)
         else:
             s = s.decode('unicode-escape')
@@ -92,7 +106,7 @@ def unquote(s):
                 raise ParseError("Illegal literal character: %r" % s[0])
         return u''.join(result)
 
-r_hibyte = re.compile(ur'([\x80-\xFF])')
+r_hibyte = re.compile(r'([\x80-\xFF])')
 
 
 def uriquote(uri):
@@ -125,7 +139,8 @@ class NTriplesParser(object):
         if not hasattr(f, 'read'):
             raise ParseError("Item to parse must be a file-like object.")
 
-        f = ascii(f)
+        # since N-Triples 1.1 files can and should be utf-8 encoded
+        f = codecs.getreader('utf-8')(f)
 
         self.file = f
         self.buffer = ''
@@ -141,14 +156,8 @@ class NTriplesParser(object):
 
     def parsestring(self, s):
         """Parse s as an N-Triples string."""
-        if not isinstance(s, basestring):
+        if not isinstance(s, string_types):
             raise ParseError("Item to parse must be a string instance.")
-        try:
-            from io import BytesIO
-            assert BytesIO
-        except ImportError:
-            from cStringIO import StringIO as BytesIO
-            assert BytesIO
         f = BytesIO()
         f.write(cast_bytes(s))
         f.seek(0)
@@ -204,7 +213,7 @@ class NTriplesParser(object):
         if not m:  # @@ Why can't we get the original pattern?
             # print(dir(pattern))
             # print repr(self.line), type(self.line)
-            raise ParseError("Failed to eat %s at %s" % (pattern, self.line))
+            raise ParseError("Failed to eat %s at %s" % (pattern.pattern, self.line))
         self.line = self.line[m.end():]
         return m
 

@@ -1,8 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from rdflib import py3compat
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
-__doc__ = py3compat.format_doctest_out("""
+from six import PY3
+
+
+__doc__ = """
 RDFLib Python binding for OWL Abstract Syntax
 
 see: http://www.w3.org/TR/owl-semantics/syntax.html
@@ -109,7 +114,7 @@ Python
 
 >>> print(g.serialize(format='pretty-xml')) #doctest: +SKIP
 
-""")
+"""
 
 import itertools
 
@@ -130,13 +135,7 @@ from rdflib.term import Identifier
 from rdflib.util import first
 
 import logging
-
-
-def _debug(*args, **kw):
-    # import logging
-    logging.basicConfig(level=logging.ERROR, format="%(message)s")
-    logger = logging.getLogger(__name__)
-    logger.debug(*args, **kw)
+logger = logging.getLogger(__name__)
 
 
 """
@@ -352,7 +351,7 @@ def manchesterSyntax(thing, store, boolean=None, transientList=False):
             if isinstance(thing, BNode):
                 return thing.n3()
             return u"<" + thing + ">"
-            _debug(list(store.objects(subject=thing, predicate=RDF.type)))
+            logger.debug(list(store.objects(subject=thing, predicate=RDF.type)))
             raise
             return '[]'  # +thing._id.encode('utf-8')+'</em>'
         label = first(Class(thing, graph=store).label)
@@ -727,7 +726,7 @@ CLASS_RELATIONS = set(
 def ComponentTerms(cls):
     """
     Takes a Class instance and returns a generator over the classes that
-    are involved in its definition, ignoring unamed classes
+    are involved in its definition, ignoring unnamed classes
     """
     if OWL_NS.Restriction in cls.type:
         try:
@@ -1372,7 +1371,7 @@ class OWLRDFListProxy(object):
 
 
 class EnumeratedClass(OWLRDFListProxy, Class):
-    py3compat.format_doctest_out("""
+    """
     Class for owl:oneOf forms:
 
     OWL Abstract Syntax is used
@@ -1397,7 +1396,7 @@ class EnumeratedClass(OWLRDFListProxy, Class):
     >>> col = Collection(g, first(
     ...    g.objects(predicate=OWL_NS.oneOf, subject=ogbujiBros.identifier)))
     >>> [g.qname(item) for item in col]
-    [%(u)s'ex:chime', %(u)s'ex:uche', %(u)s'ex:ejike']
+    [u'ex:chime', u'ex:uche', u'ex:ejike']
     >>> print(g.serialize(format='n3')) #doctest: +SKIP
     @prefix ex: <http://example.com/> .
     @prefix owl: <http://www.w3.org/2002/07/owl#> .
@@ -1407,7 +1406,7 @@ class EnumeratedClass(OWLRDFListProxy, Class):
         owl:oneOf ( ex:chime ex:uche ex:ejike ) .
     <BLANKLINE>
     <BLANKLINE>
-    """)
+    """
     _operator = OWL_NS.oneOf
 
     def isPrimitive(self):
@@ -1566,7 +1565,7 @@ class BooleanClass(OWLRDFListProxy, Class):
         ... except Exception%s: print(e)
         The new operator is already being used!
 
-        """ % 'as e' if py3compat.PY3 else ', e'
+        """ % 'as e' if PY3 else ', e'
         assert newOperator != self._operator, \
             "The new operator is already being used!"
         self.graph.remove((self.identifier, self._operator, self._rdfList.uri))
@@ -1660,7 +1659,7 @@ class Restriction(Class):
             self.graph.add((self.identifier, RDF.type, OWL_NS.Restriction))
             self.graph.remove((self.identifier, RDF.type, OWL_NS.Class))
 
-    @py3compat.format_doctest_out
+
     def serialize(self, graph):
         """
         >>> g1 = Graph()
@@ -1683,7 +1682,7 @@ class Restriction(Class):
         ...     EX.someProp,baseType=None).type
         ... ) #doctest: +NORMALIZE_WHITESPACE +SKIP
         [rdflib.term.URIRef(
-            %(u)s'http://www.w3.org/2002/07/owl#DatatypeProperty')]
+            u'http://www.w3.org/2002/07/owl#DatatypeProperty')]
         """
         Property(
             self.onProperty, graph=self.graph, baseType=None).serialize(graph)

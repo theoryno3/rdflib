@@ -5,6 +5,8 @@ A commandline tool for parsing RDF in different formats and serializing the
 resulting graph to a chosen format.
 """
 
+from __future__ import absolute_import
+
 import sys
 from optparse import OptionParser
 import logging
@@ -18,6 +20,7 @@ from rdflib.parser import Parser
 from rdflib.serializer import Serializer
 
 from rdflib.util import guess_format
+from six import PY3
 
 
 DEFAULT_INPUT_FORMAT = 'xml'
@@ -170,6 +173,9 @@ def main():
             ns_bindings[pfx] = uri
 
     outfile = sys.stdout
+    if PY3:
+        outfile = sys.stdout.buffer
+
     if opts.no_out:
         outfile = None
 

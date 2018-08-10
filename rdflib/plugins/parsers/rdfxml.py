@@ -5,8 +5,9 @@ An RDF/XML parser for RDFLib
 from xml.sax import make_parser
 from xml.sax.handler import ErrorHandler
 from xml.sax.saxutils import handler, quoteattr, escape
-from urlparse import urljoin, urldefrag
 
+
+from six.moves.urllib.parse import urldefrag, urljoin
 from rdflib.namespace import RDF, is_ncname
 from rdflib.term import URIRef
 from rdflib.term import BNode
@@ -20,7 +21,7 @@ __all__ = ['create_parser', 'BagID', 'ElementHandler',
 RDFNS = RDF
 
 # http://www.w3.org/TR/rdf-syntax-grammar/#eventterm-attribute-URI
-# A mapping from unqualified terms to there qualified version.
+# A mapping from unqualified terms to their qualified version.
 UNQUALIFIED = {"about": RDF.about,
                "ID": RDF.ID,
                "type": RDF.type,
@@ -171,7 +172,8 @@ class RDFXMLHandler(handler.ContentHandler):
     def processingInstruction(self, target, data):
         pass
 
-    def add_reified(self, sid, (s, p, o)):
+    def add_reified(self, sid, spo):
+        s,p,o = spo
         self.store.add((sid, RDF.type, RDF.Statement))
         self.store.add((sid, RDF.subject, s))
         self.store.add((sid, RDF.predicate, p))
@@ -214,11 +216,11 @@ class RDFXMLHandler(handler.ContentHandler):
         else:
             name = URIRef("".join(name))
         atts = {}
-        for (n, v) in attrs.items():  # attrs._attrs.iteritems(): #
+        for (n, v) in attrs.items():
             if n[0] is None:
-                att = URIRef(n[1])
+                att = n[1]
             else:
-                att = URIRef("".join(n))
+                att = "".join(n)
             if att.startswith(XMLNS) or att[0:3].lower() == "xml":
                 pass
             elif att in UNQUALIFIED:
@@ -302,7 +304,7 @@ class RDFXMLHandler(handler.ContentHandler):
                 predicate = absolutize(att)
                 try:
                     object = Literal(atts[att], language)
-                except Error, e:
+                except Error as e:
                     self.error(e.msg)
             elif att == RDF.type:  # S2
                 predicate = RDF.type
@@ -316,7 +318,7 @@ class RDFXMLHandler(handler.ContentHandler):
                 predicate = absolutize(att)
                 try:
                     object = Literal(atts[att], language)
-                except Error, e:
+                except Error as e:
                     self.error(e.msg)
             self.store.add((subject, predicate, object))
 

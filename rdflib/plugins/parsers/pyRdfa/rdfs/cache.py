@@ -11,48 +11,22 @@ U{W3C® SOFTWARE NOTICE AND LICENSE<href="http://www.w3.org/Consortium/Legal/200
 """
 import os, sys, datetime, re
 
-PY3 = (sys.version_info[0] >= 3)
 
-import rdflib
-from rdflib	import URIRef
-from rdflib	import Literal
-from rdflib	import BNode
-from rdflib	import Namespace
-if rdflib.__version__ >= "3.0.0" :
-	from rdflib	import RDF  as ns_rdf
-	from rdflib	import RDFS as ns_rdfs
-	from rdflib	import Graph
-else :
-	from rdflib.RDFS	import RDFSNS as ns_rdfs
-	from rdflib.RDF		import RDFNS  as ns_rdf
-	from rdflib.Graph 	import Graph
+from rdflib	import Graph
 
-from ..			import HTTPError, RDFaError
-from ..host 	import MediaTypes, HostLanguage
-from ..utils	import create_file_name, URIOpener, quote_URI
-from ..options	import Options
-from ..			import ns_rdfa
-
-from . import err_outdated_cache
-from . import err_unreachable_vocab
-from . import err_unparsable_Turtle_vocab
-from . import err_unparsable_xml_vocab
-from . import err_unparsable_ntriples_vocab
-from . import err_unparsable_rdfa_vocab
-from . import err_unrecognised_vocab_type
+from ..utils	import create_file_name
 
 from . import VocabCachingInfo
 
 # Regular expression object for a general XML application media type
 xml_application_media_type = re.compile("application/[a-zA-Z0-9]+\+xml")
 
-from ..utils import URIOpener
-
 #===========================================================================================
-if PY3 :
-	import pickle
-else :
+try:
 	import cPickle as pickle
+except ImportError:
+	import pickle
+
 
 # Protocol to be used for pickle files. 0 is good for debug, it stores the data in ASCII; 1 is better for deployment,
 # it stores data in binary format. Care should be taken for consistency; when changing from 0 to 1 or back, all
@@ -71,7 +45,7 @@ def _load(fname) :
 		return pickle.load(f)
 	finally :
 		f.close()
-	
+
 def _dump(obj, fname) :
 	"""
 	Dump an object into cached file
@@ -90,12 +64,12 @@ class CachedVocabIndex :
 	"""
 	Class to manage the cache index. Takes care of finding the vocab directory, and manages the index
 	to the individual vocab data.
-	
+
 	The vocab directory is set to a platform specific area, unless an environment variable
 	sets it explicitly. The environment variable is "PyRdfaCacheDir"
-	
+
 	Every time the index is changed, the index is put back (via pickle) to the directory.
-	
+
 	@ivar app_data_dir: directory for the vocabulary cache directory
 	@ivar index_fname: the full path of the index file on the disc
 	@ivar indeces: the in-memory version of the index (a directory mapping URI-s to tuples)
@@ -131,12 +105,12 @@ class CachedVocabIndex :
 		"""
 		self.options = options
 		self.report  = (options != None) and options.vocab_cache_report
-		
+
 		# This is where the cache files should be
 		self.app_data_dir	= self._give_preference_path()
 		self.index_fname	= os.path.join(self.app_data_dir, self.vocabs)
 		self.indeces 		= {}
-		
+
 		# Check whether that directory exists.
 		if not os.path.isdir(self.app_data_dir) :
 			try :
@@ -158,7 +132,7 @@ class CachedVocabIndex :
 			if os.access(self.index_fname, os.R_OK) :
 				self.indeces = _load(self.index_fname)
 			else :
-				if self.report: options.add_info("Vocab cache index not readable", VocabCachingInfo)				
+				if self.report: options.add_info("Vocab cache index not readable", VocabCachingInfo)
 		else :
 			# This is the very initial phase, creation
 			# of a a new index
@@ -170,30 +144,30 @@ class CachedVocabIndex :
 					(type,value,traceback) = sys.exc_info()
 					if self.report: options.add_info("Could not create the vocabulary index %s" % value, VocabCachingInfo)
 			else :
-				if self.report: options.add_info("Vocabulary cache directory is not writeable", VocabCachingInfo)				
-				self.cache_writeable	= False	
-				
+				if self.report: options.add_info("Vocabulary cache directory is not writeable", VocabCachingInfo)
+				self.cache_writeable	= False
+
 	def add_ref(self, uri, vocab_reference) :
 		"""
 		Add a new entry to the index, possibly removing the previous one.
-		
+
 		@param uri: the URI that serves as a key in the index directory
 		@param vocab_reference: tuple consisting of file name, modification date, and expiration date
 		"""
 		# Store the index right away
-		self.indeces[uri] = vocab_reference		
+		self.indeces[uri] = vocab_reference
 		try :
 			_dump(self.indeces, self.index_fname)
 		except Exception :
 			(type,value,traceback) = sys.exc_info()
 			if self.report: self.options.add_info("Could not store the cache index %s" % value, VocabCachingInfo)
-			
+
 	def get_ref(self, uri) :
 		"""
 		Get an index entry, if available, None otherwise.
 		The return value is a tuple: file name, modification date, and expiration date
-		
-		@param uri: the URI that serves as a key in the index directory		
+
+		@param uri: the URI that serves as a key in the index directory
 		"""
 		if uri in self.indeces :
 			return tuple(self.indeces[uri])
@@ -214,7 +188,7 @@ class CachedVocabIndex :
 				system = self.architectures[platform]
 			else :
 				system = "unix"
-	
+
 			if system == "win" :
 				# there is a user variable set for that purpose
 				app_data = os.path.expandvars("%APPDATA%")
@@ -227,7 +201,7 @@ class CachedVocab(CachedVocabIndex) :
 	"""
 	Cache for a specific vocab. The content of the cache is the graph. These are also the data that are stored
 	on the disc (in pickled form)
-	
+
 	@ivar graph: the RDF graph
 	@ivar URI: vocabulary URI
 	@ivar filename: file name (not the complete path) of the cached version
@@ -245,7 +219,7 @@ class CachedVocab(CachedVocabIndex) :
 		@type options: L{options.Options}
 		"""
 		# First see if this particular vocab has been handled before. If yes, it is extracted and everything
-		# else can be forgotten. 
+		# else can be forgotten.
 		self.uri													= URI
 		(self.filename, self.creation_date, self.expiration_date)	= ("",None,None)
 		self.graph													= Graph()
@@ -264,7 +238,7 @@ class CachedVocab(CachedVocabIndex) :
 		if vocab_reference == None :
 			# This has never been cached before
 			if self.report: options.add_info("No cache exists for %s, generating one" % URI, VocabCachingInfo)
-			
+
 			# Store all the cache data unless caching proves to be impossible
 			if self._get_vocab_data(newCache = True) and self.caching :
 				self.filename = create_file_name(self.uri)
@@ -310,11 +284,11 @@ class CachedVocab(CachedVocabIndex) :
 				self.creation_date = datetime.datetime.utcnow()
 				if self.report:
 					options.add_info("Generated a new cache for %s, with an expiration date of %s" % (URI,self.expiration_date), VocabCachingInfo, URI)
-					
+
 				self._store_caches()
 
 	def _get_vocab_data(self, newCache = True) :
-		"""Just a macro like function to get the data to be cached"""		
+		"""Just a macro like function to get the data to be cached"""
 		from pyRdfa.rdfs.process import return_graph
 		(self.graph, self.expiration_date) = return_graph(self.uri, self.options, newCache)
 		return self.graph != None
@@ -332,12 +306,12 @@ class CachedVocab(CachedVocabIndex) :
 			if self.report : self.options.add_info("Could not write cache file %s (%s)", (fname,value), VocabCachingInfo, self.uri)
 		# Update the index
 		self.add_ref(self.uri,(self.filename, self.creation_date, self.expiration_date))
-		
+
 #########################################################################################################################################
 
 def offline_cache_generation(args) :
 	"""Generate a cache for the vocabulary in args.
-	
+
 	@param args: array of vocabulary URIs.
 	"""
 	class LocalOption :
@@ -350,37 +324,37 @@ def offline_cache_generation(args) :
 			print( wae + ": " + txt )
 			if context != None: print( context )
 			print( "====" )
-			
+
 		def add_warning(self, txt, warning_type=None, context=None) :
 			"""Add a warning to the processor graph.
-			@param txt: the warning text. 
+			@param txt: the warning text.
 			@keyword warning_type: Warning Class
 			@type warning_type: URIRef
 			@keyword context: possible context to be added to the processor graph
 			@type context: URIRef or String
 			"""
 			self.pr("Warning",txt,warning_type,context)
-	
+
 		def add_info(self, txt, info_type=None, context=None) :
 			"""Add an informational comment to the processor graph.
-			@param txt: the information text. 
+			@param txt: the information text.
 			@keyword info_type: Info Class
 			@type info_type: URIRef
 			@keyword context: possible context to be added to the processor graph
 			@type context: URIRef or String
 			"""
 			self.pr("Info",txt,info_type,context)
-	
+
 		def add_error(self, txt, err_type=None, context=None) :
 			"""Add an error  to the processor graph.
-			@param txt: the information text. 
+			@param txt: the information text.
 			@keyword err_type: Error Class
 			@type err_type: URIRef
 			@keyword context: possible context to be added to the processor graph
 			@type context: URIRef or String
 			"""
 			self.pr("Error",txt,err_type,context)
-			
+
 	for uri in args :
 		# This should write the cache
 		print( ">>>>> Writing Cache <<<<<" )
@@ -391,5 +365,3 @@ def offline_cache_generation(args) :
 		print( "URI: " + uri )
 		print( "default vocab: " + rd.vocabulary )
 		print( "terms: %s prefixes: %s" % (rd.terms,rd.ns) )
-
-	
